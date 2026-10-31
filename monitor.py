@@ -47,6 +47,8 @@ def notify(text):
 
 
 def main():
+    if os.environ.get("TEST_NOTIFY") == "true":
+        notify("【テスト】UR空室監視からの通知テストです")
     current = {r["id"]: describe(r) for r in fetch_rooms() if is_target(r.get("name"))}
     try:
         with open(STATE_FILE, encoding="utf-8") as f:
