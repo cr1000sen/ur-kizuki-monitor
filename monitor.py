@@ -9,6 +9,8 @@ API = "https://chintai.r6.ur-net.go.jp/chintai/api/bukken/detail/detail_bukken_r
 PAGE = "https://www.ur-net.go.jp/chintai/kanto/kanagawa/40_3020.html"
 TARGET_BLDGS = {"7", "8", "9"}
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+# 部屋名の形を確認するため、団地全体の空室を最初の1回だけ通知する。通知済みならこのファイルができる
+FORMAT_CHECK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "format_checked.txt")
 
 
 def fetch_rooms():
@@ -49,7 +51,13 @@ def notify(text):
 def main():
     if os.environ.get("TEST_NOTIFY") == "true":
         notify("【テスト】UR空室監視からの通知テストです")
-    current = {r["id"]: describe(r) for r in fetch_rooms() if is_target(r.get("name"))}
+    rooms = fetch_rooms()
+    if rooms and not os.path.exists(FORMAT_CHECK_FILE):
+        names = [r.get("name", "") for r in rooms]
+        notify("【確認用・初回のみ】木月住吉団地の全空室の部屋名です\n" + "\n".join(names))
+        with open(FORMAT_CHECK_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(names) + "\n")
+    current = {r["id"]: describe(r) for r in rooms if is_target(r.get("name"))}
     try:
         with open(STATE_FILE, encoding="utf-8") as f:
             previous = json.load(f)
