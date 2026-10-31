@@ -8,6 +8,7 @@ import urllib.request
 API = "https://chintai.r6.ur-net.go.jp/chintai/api/bukken/detail/detail_bukken_room/"
 PAGE = "https://www.ur-net.go.jp/chintai/kanto/kanagawa/40_3020.html"
 TARGET_BLDGS = {"7", "8", "9"}
+CONTACT = "問い合わせ: UR賃貸ショップ日吉 045-620-8100（10-18時・水曜休）"
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 # 部屋名の形を確認するため、団地全体の空室を最初の1回だけ通知する。通知済みならこのファイルができる
 FORMAT_CHECK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "format_checked.txt")
@@ -58,6 +59,7 @@ def main():
         with open(FORMAT_CHECK_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(names) + "\n")
     current = {r["id"]: describe(r) for r in rooms if is_target(r.get("name"))}
+    links = {r["id"]: "https://www.ur-net.go.jp" + r["roomDetailLink"] for r in rooms if r.get("roomDetailLink")}
     try:
         with open(STATE_FILE, encoding="utf-8") as f:
             previous = json.load(f)
@@ -65,14 +67,14 @@ def main():
         previous = None
 
     if previous is not None and current != previous:
-        added = [v for k, v in current.items() if k not in previous]
+        added = [v + ("\n " + links[k] if k in links else "") for k, v in current.items() if k not in previous]
         removed = [v for k, v in previous.items() if k not in current]
         lines = ["【木月住吉団地 7〜9号棟 空室更新】"]
         if added:
             lines += ["▼新着"] + added
         if removed:
             lines += ["▼募集終了"] + removed
-        lines += [f"現在の空室: {len(current)}件", PAGE]
+        lines += [f"現在の空室: {len(current)}件", PAGE, CONTACT]
         notify("\n".join(lines))
         print("\n".join(lines))
     else:
