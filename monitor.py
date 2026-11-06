@@ -1,4 +1,5 @@
-"""UR 木月住吉団地 7・8・9号棟の空室を監視し、変化があればLINEに通知する。"""
+"""UR 木月住吉団地 8・9号棟の空室を監視し、変化があればLINEに通知する。"""
+import html
 import json
 import os
 import re
@@ -7,8 +8,9 @@ import urllib.request
 
 API = "https://chintai.r6.ur-net.go.jp/chintai/api/bukken/detail/detail_bukken_room/"
 PAGE = "https://www.ur-net.go.jp/chintai/kanto/kanagawa/40_3020.html"
-TARGET_BLDGS = {"7", "8", "9"}
-CONTACT = "問い合わせ: UR賃貸ショップ日吉 045-620-8100（10-18時・水曜休）"
+TARGET_BLDGS = {"8", "9"}  # 7号棟は管理棟なので対象外
+INQUIRY = "https://sumai.r6.ur-net.go.jp/chintai/s/otoiawase/danchi.html?in=1040302"
+TEL = "UR賃貸ショップ日吉 045-620-8100（10-18時・水曜休）"
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
 # 部屋名の形を確認するため、団地全体の空室を最初の1回だけ通知する。通知済みならこのファイルができる
 FORMAT_CHECK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "format_checked.txt")
@@ -36,17 +38,30 @@ def is_target(name):
 
 
 def describe(r):
-    return f"{r['name']} {r.get('type','')} {r.get('rent_normal','')}(共益費{r.get('commonfee','')})"
+    link = "https://www.ur-net.go.jp" + r["roomDetailLink"] if r.get("roomDetailLink") else PAGE
+    return "\n".join([
+        r["name"],
+        f"間取り: {r.get('type', '')}",
+        f"面積: {html.unescape(r.get('floorspace') or '')}",
+        f"階数: {r.get('floor', '')}",
+        f"家賃: {r.get('rent_normal', '')}（共益費 {r.get('commonfee', '')}）",
+        f"物件: {link}",
+        f"問い合わせ: {INQUIRY}",
+        f"電話: {TEL}",
+    ])
 
 
-def notify(text):
+def notify(*texts):
+    # 1回の送信に吹き出し5つまで（送信回数としては1通分）
     token = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-    req = urllib.request.Request(
-        "https://api.line.me/v2/bot/message/broadcast",
-        data=json.dumps({"messages": [{"type": "text", "text": text[:4900]}]}).encode(),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-    )
-    urllib.request.urlopen(req, timeout=30).read()
+    for i in range(0, len(texts), 5):
+        messages = [{"type": "text", "text": t[:4900]} for t in texts[i:i + 5]]
+        req = urllib.request.Request(
+            "https://api.line.me/v2/bot/message/broadcast",
+            data=json.dumps({"messages": messages}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+        urllib.request.urlopen(req, timeout=30).read()
 
 
 def main():
@@ -59,7 +74,6 @@ def main():
         with open(FORMAT_CHECK_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(names) + "\n")
     current = {r["id"]: describe(r) for r in rooms if is_target(r.get("name"))}
-    links = {r["id"]: "https://www.ur-net.go.jp" + r["roomDetailLink"] for r in rooms if r.get("roomDetailLink")}
     try:
         with open(STATE_FILE, encoding="utf-8") as f:
             previous = json.load(f)
@@ -67,16 +81,11 @@ def main():
         previous = None
 
     if previous is not None and current != previous:
-        added = [v + ("\n " + links[k] if k in links else "") for k, v in current.items() if k not in previous]
-        removed = [v for k, v in previous.items() if k not in current]
-        lines = ["【木月住吉団地 7〜9号棟 空室更新】"]
-        if added:
-            lines += ["▼新着"] + added
-        if removed:
-            lines += ["▼募集終了"] + removed
-        lines += [f"現在の空室: {len(current)}件", PAGE, CONTACT]
-        notify("\n".join(lines))
-        print("\n".join(lines))
+        added = [v for k, v in current.items() if k not in previous]
+        removed = [v.split("\n")[0] + "\n募集終了しました" for k, v in previous.items() if k not in current]
+        if added or removed:
+            notify(*added, *removed)
+        print("\n\n".join(added + removed))
     else:
         print(f"変化なし（空室{len(current)}件）")
 
