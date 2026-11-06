@@ -3,6 +3,9 @@ import html
 import json
 import os
 import re
+import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -24,8 +27,15 @@ def fetch_rooms():
             "orderByField": "0", "orderBySort": "0", "pageIndex": str(page), "sp": "",
         }).encode()
         req = urllib.request.Request(API, data=data, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = json.loads(r.read().decode("utf-8")) or []  # 空室なしだと null
+        for attempt in range(3):  # URのサーバーはたまに500を返すので再試行する
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    body = json.loads(r.read().decode("utf-8")) or []  # 空室なしだと null
+                break
+            except (urllib.error.URLError, TimeoutError):
+                if attempt == 2:
+                    raise
+                time.sleep(10)
         rooms += body
         if not body or len(rooms) >= int(body[0].get("allCount") or 0):
             return rooms
@@ -67,7 +77,12 @@ def notify(*texts):
 def main():
     if os.environ.get("TEST_NOTIFY") == "true":
         notify("【テスト】UR空室監視からの通知テストです")
-    rooms = fetch_rooms()
+    try:
+        rooms = fetch_rooms()
+    except (urllib.error.URLError, TimeoutError) as e:
+        # 一時的な障害なら次の回で取り直せるので、失敗扱い（エラーメール）にしない
+        print(f"URのサーバーに接続できませんでした: {e}")
+        sys.exit(0)
     if rooms and not os.path.exists(FORMAT_CHECK_FILE):
         names = [r.get("name", "") for r in rooms]
         notify("【確認用・初回のみ】木月住吉団地の全空室の部屋名です\n" + "\n".join(names))
